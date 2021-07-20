@@ -54,7 +54,8 @@ SomeComponent = om.ExplicitFuncComp(some_component_func)
 ```
 
 The resulting `SomeComponent` has inputs and outputs with the least restrictive metadata possible and can be placed in a group so that an XDSM may be drawn and spec test regression data may be generated.
-Does OpenMDAO run the compute to test things during setup? does it need to return something?
+This is an important workflow because it reduces duplicate code maintenance. If I/O needs to change, the component can be changed, the XDSM and spec files re-generated and reviewed, then regression data can be updated. This makes user code "DRY" -- "do not repeat yourself", an important coding principle.
+Does OpenMDAO run the compute to test things during setup? In other words, does this skeleton  need to return something?
 
 Next steps include writing the function code and configuring the Component.
 Component configuration is what's included in the I/O and "everything else".
@@ -75,15 +76,18 @@ Or if it's better to use a dict or 3rd party metadata container, that's fine too
 
 Or, the input/output can be configured by decorator as proposed by Justin. I would like it if the input decorators inspected the name of the input variable by default. 
 
-For more complicated OpenMDAO API specific calls, perhaps we subclass? Another feature is other functions having a normal signature, either as stand-alone functions or methods of subclass. Could use standard OpenMDAO method name and decorate to handle function input/output. For standalone, may need special API call or flag.
+For more involved OpenMDAO API calls, we can use a subclass to provide ? Another feature is other functions having a normal signature, either as stand-alone functions or methods of subclass. Could use standard OpenMDAO method name and decorate to handle function input/output. For standalone, may need special API call or flag.
 Or are both cases solved by just assuming that signature type for this subclass and wrapping everything with an IO handler.
 
 ```python
 class SomeComponent(om.ExplicitFuncComp(some_component_func)):
-    def __setup_hook__(self):
+    def setup(self):
+        super().setup()
         """
-        can make any any component api calls here. Can use hooks (might want pre/post setup)
-        or a user can over-write setup or any other functions but call super().setup() appropriately
+        can make any any component api calls here. If desired, could provide hooks (e.g., pre/post setup)
+        could do something similar with initialize, or any other method.
+
+        Is it possible to manipulate a 
         """
 
      @om.func.process_io # or maybe this is the default behavior for this class?
@@ -109,13 +113,13 @@ def J_some_func(x, y, z, J):
     J['bar', 'y'][:] = 1 # need to set all elements of a
 
 class SomeComponent(om.ExplicitFuncComp(some_component_func)):
-    def __setup_hook__(self):
+    def __post_setup_hook__(self):
         self.compute_partials(J_some_func)
 
 ```
 
 Once you have the class, you can do any additional OpenMDAO api calls. In a post setup hook, could probably even manipulate the automatically generated stuff (like from the least specified annotations or even `om.ExplicitFuncCOmpWithOutput`, which should also be subclassable like the other).
-This provides some some separation of engineering code and OpenMDAO api, reduces boilerplate, etc as desired.
+This provides some some separation of engineering code and OpenMDAO api, reduces boilerplate and repeat code, etc as desired.
 
 
 ## Explicit API Description
