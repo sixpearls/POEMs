@@ -76,7 +76,8 @@ Or if it's better to use a dict or 3rd party metadata container, that's fine too
 
 Or, the input/output can be configured by decorator as proposed by Justin. I would like it if the input decorators inspected the name of the input variable by default. 
 
-For more involved OpenMDAO API calls, we can use a subclass to provide ? Another feature is other functions having a normal signature, either as stand-alone functions or methods of subclass. Could use standard OpenMDAO method name and decorate to handle function input/output. For standalone, may need special API call or flag.
+For more involved OpenMDAO API calls, we can use a subclass to access the the full API. See below.
+Another feature is other functions having a normal signature, either as stand-alone functions or methods of subclass. Could use standard OpenMDAO method name and decorate to handle function input/output. For standalone, may need special API call or flag.
 Or are both cases solved by just assuming that signature type for this subclass and wrapping everything with an IO handler.
 
 ```python
