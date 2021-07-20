@@ -16,6 +16,107 @@ Associated implementation PR:
 ## Motivation
 
 Define an OpenMDAO component, including all I/O with metadata, the compute method, and potentially derivatives using a purely function based syntax. 
+Why? 
+- Make it easier/reduce boiler plate for defining a component
+    - generate an XDSM for design reviews and facilitate regression-based spec testing
+    - faster to starting point for OpenMDAO-specific configuration
+    - iterative OpenMDAO-specific configuration
+- Define relevant functions (compute, apply_nonlinear, compute_partials) using standard python `def` syntax
+    - original function(s) are still accessible and callable
+
+We should support multiple workflows this way.
+
+An example of code using minimal coupling with the OpenMDAO API: 
+
+```python
+# engineering code
+def some_component_func(x, y, z):
+    foo = np.log(z)/(3*x+2*y)
+    bar = 2*x+y
+    return foo, bar
+
+# OpenMDAO middleware
+SomeComponent = om.ExplicitFuncCompWithOutput(some_component_func, 'foo', 'bar')
+```
+
+In this example, the engineering code is not modified at all, `ExplicitFuncCompWithOutput` takes the function and consumes the remaining `*args` as output objects/metadata. Assume just a string is providing just a name, but could be a tuple, dict, etc. Should ultimately define one right way to handle managing IO metadata as it will come up more later. This may be a special use case (and function/interface) but it should return the same type of object/class.
+
+Inputs and outputs without metadata should get defaulted to the least restrictive possible (broadcastable, unitless, etc) 
+
+
+For model design where the code is being written for an OpenMDAO component, some coupling is acceptable to streamline workflow (reduce repeat code). For example, XDSM to spec test work flow.
+
+```python
+def some_component_func(x, y, z) -> ['foo', 'bar']:
+    return
+
+SomeComponent = om.ExplicitFuncComp(some_component_func)
+```
+
+The resulting `SomeComponent` has inputs and outputs with the least restrictive metadata possible and can be placed in a group so that an XDSM may be drawn and spec test regression data may be generated.
+Does OpenMDAO run the compute to test things during setup? does it need to return something?
+
+Next steps include writing the function code and configuring the Component.
+Component configuration is what's included in the I/O and "everything else".
+For the I/O, I will ignore the fully de-coupled engineering code/ OpenMDAO API case.
+For the coupled case, we can do more annotations or decorators.
+
+For the annotations, it could be nice to provide a custom type that takes the metadata fields as var. And read defaults as default value like:
+
+```python
+def some_component_func(x: om.func.Input(units='m') = 0., y, z) ->
+                        [om.func.Output('foo'),
+                         om.func.Output('bar', units='1/m', shape=4)]:
+    return
+
+SomeComponent = om.ExplicitFuncComp(some_component_func)
+```
+Or if it's better to use a dict or 3rd party metadata container, that's fine too. Or support both. 
+
+Or, the input/output can be configured by decorator as proposed by Justin. I would like it if the input decorators inspected the name of the input variable by default. 
+
+For more complicated OpenMDAO API specific calls, perhaps we subclass? Another feature is other functions having a normal signature, either as stand-alone functions or methods of subclass. Could use standard OpenMDAO method name and decorate to handle function input/output. For standalone, may need special API call or flag.
+Or are both cases solved by just assuming that signature type for this subclass and wrapping everything with an IO handler.
+
+```python
+class SomeComponent(om.ExplicitFuncComp(some_component_func)):
+    def __setup_hook__(self):
+        """
+        can make any any component api calls here. Can use hooks (might want pre/post setup)
+        or a user can over-write setup or any other functions but call super().setup() appropriately
+        """
+
+     @om.func.process_io # or maybe this is the default behavior for this class?
+     def compute_partials(self, x, y, z, J): 
+
+        J['foo', 'x'] = -3*np.log(z)(3*x+2*y)**2 
+        J['foo', 'y'] = -2*np.log(z)(3*x+2*y)**2 
+        J['foo', 'z'] = 1/(3*x+2*y) * 1/z
+
+        J['bar', 'x'][:] = 2 # need to set all elements of array
+        J['bar', 'y'][:] = 1 # need to set all elements of a
+
+```
+
+```python
+def J_some_func(x, y, z, J): 
+
+    J['foo', 'x'] = -3*np.log(z)(3*x+2*y)**2 
+    J['foo', 'y'] = -2*np.log(z)(3*x+2*y)**2 
+    J['foo', 'z'] = 1/(3*x+2*y) * 1/z
+
+    J['bar', 'x'][:] = 2 # need to set all elements of array
+    J['bar', 'y'][:] = 1 # need to set all elements of a
+
+class SomeComponent(om.ExplicitFuncComp(some_component_func)):
+    def __setup_hook__(self):
+        self.compute_partials(J_some_func)
+
+```
+
+Once you have the class, you can do any additional OpenMDAO api calls. In a post setup hook, could probably even manipulate the automatically generated stuff (like from the least specified annotations or even `om.ExplicitFuncCOmpWithOutput`, which should also be subclassable like the other).
+This provides some some separation of engineering code and OpenMDAO api, reduces boilerplate, etc as desired.
+
 
 ## Explicit API Description
 
@@ -376,3 +477,4 @@ def some_implicit_resid(x, y):
 
 comp = om.ImplicitFuncComp(some_implicit_resid,)    
 ```
+Or what if in_var doesn't need the name and just takes it from inspection? 
