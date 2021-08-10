@@ -15,14 +15,16 @@ Associated implementation PR:
 
 ## Motivation
 
-Define an OpenMDAO component, including all I/O with metadata, the compute method, and potentially derivatives using a purely function based syntax. 
+Define an OpenMDAO component where numerical methods (e.g., `compute`) is provided by a standard function with arguments and return by value and necessary data is provided with distinct OpenMDAO middleware code as "DRY"-ly as possible, 
 Why? 
 - Make it easier/reduce boiler plate for defining a component
-    - generate an XDSM for design reviews and facilitate regression-based spec testing
+    - Facilitate rapid prototyping of components to enable workflows like treating automaticaly generated XDSM as a documentation, design review, and regression tool.
     - faster to starting point for OpenMDAO-specific configuration
-    - iterative OpenMDAO-specific configuration
-- Define relevant functions (compute, apply_nonlinear, compute_partials) using standard python `def` syntax
-    - original function(s) are still accessible and callable
+    - iteratively add OpenMDAO-specific configuration (metadata) as model development progresses
+- Define relevant functions (compute, apply_nonlinear, compute_partials) using standard python arguments and return by values.
+    - original function(s) are still accessible and callable, enabling full development (possibly including testing, validation, etc) of engineering code independent of OM. This also facilitates code organization options.
+    - reduces boiler plate of unpacking inputs
+    - facilitate using other libraries like JAX for algorithmic differentiation.
 
 We should support multiple workflows this way.
 
@@ -36,16 +38,19 @@ def some_component_func(x, y, z):
     return foo, bar
 
 # OpenMDAO middleware
-SomeComponent = om.ExplicitFuncCompWithOutput(some_component_func, 'foo', 'bar')
+SomeComponent = om.ExplicitFuncComp(some_component_func, inputs=[...], outputs=['foo', 'bar'])
 ```
 
-In this example, the engineering code is not modified at all, `ExplicitFuncCompWithOutput` takes the function and consumes the remaining `*args` as output objects/metadata. Assume just a string is providing just a name, but could be a tuple, dict, etc. Should ultimately define one right way to handle managing IO metadata as it will come up more later. This may be a special use case (and function/interface) but it should return the same type of object/class.
+In this example, the engineering code is not modified at all, `ExplicitFuncComp` takes the function and input and output objects/metadata and returns a Component class. Assume just a string is providing just a name, but could be a tuple, dict, or custom OpenMDAO API so available fields can be found (documentation, tab completion, etc)
 
-Inputs and outputs without metadata should get defaulted to the least restrictive possible (broadcastable, unitless, etc) 
+Inputs and outputs without metadata should get defaulted to the least restrictive possible (broadcastable, unitless, etc) so that Groups can be constructed as early as possible. The group structure facilitates certain design review and analysis, such as auto-XDSM. Ultimately, the IO metadata will need to be provided as development continues.
 
+Annatations may be used to provide some metadata including output names. Two use cases come to mind:
+ - When coupled engineering and OpenMDAO code is acceptable or desired
+ - When annotations on engineering code might be used for multiple libraries (JIT, AD, code analysis, etc)
 
-For model design where the code is being written for an OpenMDAO component, some coupling is acceptable to streamline workflow (reduce repeat code). For example, XDSM to spec test work flow.
-
+So you should be able to provide identical metadata through annotations. 
+ 
 ```python
 def some_component_func(x, y, z) -> ['foo', 'bar']:
     return
@@ -53,14 +58,31 @@ def some_component_func(x, y, z) -> ['foo', 'bar']:
 SomeComponent = om.ExplicitFuncComp(some_component_func)
 ```
 
-The resulting `SomeComponent` has inputs and outputs with the least restrictive metadata possible and can be placed in a group so that an XDSM may be drawn and spec test regression data may be generated.
-This is an important workflow because it reduces duplicate code maintenance. If I/O needs to change, the component can be changed, the XDSM and spec files re-generated and reviewed, then regression data can be updated. This makes user code "DRY" -- "do not repeat yourself", an important coding principle.
-Does OpenMDAO run the compute to test things during setup? In other words, does this skeleton  need to return something?
+where this annotation, with no additional metadata, is equivalent to the first example. Since Components are fundamentally defined by classes, these two are fundamentally equivalent to a mixed class-based construction like:
 
-Next steps include writing the function code and configuring the Component.
-Component configuration is what's included in the I/O and "everything else".
-For the I/O, I will ignore the fully de-coupled engineering code/ OpenMDAO API case.
-For the coupled case, we can do more annotations or decorators.
+```python
+class SomeComponent(om.ExplicitFuncComp): # may need to inherit from something else
+    compute = some_component_func
+    # if using annotated version, this should "just work", at least for putting in a group
+    # otherwise, can add metadata here; not sure how I like it.
+
+    # could provide clas attributes that are essentially equivalent to kwargs like
+    outputs=['foo', 'bar']
+
+    # or allow declaration of setup (and initialize) methods
+
+    # or.... ? (I may just be wanting Django syntax, which is not a bad thing)
+
+```
+
+In all 3+ construction examples provided so far:
+1. Define comptue method in engineering code, completely independently of OpenMDAO. The same syntax can be used for any of the numeric Component methods like jacobians or residuals for implicit components.
+2. Middleware uses introspection, etc. to allow minimal OpenMDAO specific configuration but needs capability to add more metadata.
+
+I think this is the core capability I want; I liked or was agnostic to a lot of the other syntax sugar you proposed. 
+
+----------------------
+
 
 For the annotations, it could be nice to provide a custom type that takes the metadata fields as var. And read defaults as default value like:
 
